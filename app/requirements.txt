@@ -8,3 +8,4 @@ sagemaker
 pillow
 requests
 nest_asyncio
+ntlk
