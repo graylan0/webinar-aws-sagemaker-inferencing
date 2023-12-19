@@ -173,13 +173,44 @@ def sanitize_filename(text):
     filename = f"{safe_prompt}_{timestamp}_{hash_part}.png"
     return filename
 
-def decode_and_show(response_bytes, s3_bucket, s3_key):
+def upload_file_to_s3(response_bytes, filename):
+    # Parse the JSON response to get the base64-encoded string
     response_json = json.loads(response_bytes)
     image_base64 = response_json['generated_image']
-    image_data = base64.b64decode(image_base64)
-    img_io = io.BytesIO(image_data)
 
+    # Decode the base64 string
+    image_data = base64.b64decode(image_base64)
+
+    # Create an image from the byte data
+    image = Image.open(io.BytesIO(image_data))
+    
+    # Prepare the image data for streaming
+    img_io = io.BytesIO()
+    image.save(img_io, 'PNG')
+    img_io.seek(0)
+    image.close()
+    # Upload the image to S3
+    s3 = boto3.client('s3')
+    s3.put_object(Body=image, Bucket=s3_bucket, Key='images/'+filename)
+
+    # Return the S3 URL of the image
+    s3_url = f"s3://{s3_bucket}/images/{image_name}"
+    print(f"Uploaded image to {s3_url}")
+
+def decode_and_show(response_bytes, s3_bucket, s3_key):
+    # Parse the JSON response to get the base64-encoded string
+    response_json = json.loads(response_bytes)
+    image_base64 = response_json['generated_image']
+
+    # Decode the base64 string
+    image_data = base64.b64decode(image_base64)
+
+    # Create an in-memory bytes buffer for the image data
+    img_io = io.BytesIO(image_data)
+    
+    # Upload to S3
     try:
+        # Ensure we're at the start of the image buffer before uploading
         img_io.seek(0)
         s3_client.put_object(Bucket=s3_bucket, Key=s3_key, Body=img_io, ContentType='image/png')
         print(f"Image uploaded to S3: {s3_bucket}/{s3_key}")
@@ -187,9 +218,9 @@ def decode_and_show(response_bytes, s3_bucket, s3_key):
         print(f"Failed to upload image to S3: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Generate the S3 URL for the uploaded image
     s3_url = f"https://{s3_bucket}.s3.amazonaws.com/{s3_key}"
     return {"url": s3_url}
-
 if os.getenv('AWS_EXECUTION_ENV') is not None:
     handler = Mangum(app)
 else:
